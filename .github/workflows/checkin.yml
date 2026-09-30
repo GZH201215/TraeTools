@@ -1,17 +1,25 @@
+# TraeTools 云端自动签到工作流（加固版）
+# 用法：整份文件覆盖 fork 仓库的 .github/workflows/checkin.yml（建议用 GitHub 网页编辑器直接粘贴，避免本地编辑器引入 tab/隐藏字符）
+# 依赖：仓库 Settings → Secrets and variables → Actions 中配置 TRAE_SESSION（必填）、TRAE_DEVICE_ID（建议必填）等
 name: Trae Daily Checkin
 
 on:
   schedule:
-    # 北京时间每天 08:00（UTC 00:00）
+    # 北京时间每天 08:00（UTC 00:00）。若持续命中 9074 风控，可错峰改为 UTC 18:30 => "30 18 * * *"（北京 02:30）
     - cron: "0 0 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: trae-daily-checkin
+  cancel-in-progress: false
+
 jobs:
   checkin:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,7 +29,39 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run checkin
+      # 显式安装依赖：加固版 checkin.py 本身只用标准库，这一步用于兼容旧版脚本（如依赖 requests）并固定环境
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests
+
+      # 环境自检：打印 runner 出口公网 IP，便于日后对照风控问题（不留敏感信息）
+      - name: Runner diagnostics
+        run: |
+          echo "Runner egress IP:"
+          curl -sS --max-time 10 https://api.ipify.org || echo "(ip lookup failed)"
+          echo ""
+          python --version
+
+      # 密钥自检：只打印长度、不打印值（GitHub 对 secret 原值会自动打码为 ***，这是官方行为）
+      - name: Validate secrets
+        env:
+          TRAE_SESSION: ${{ secrets.TRAE_SESSION }}
+          TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
+        run: |
+          如果 "$TRAE_SESSION" 为空，则
+            echo "::error::缺少 TRAE_SESSION：请到仓库 Settings -> Secrets and variables -> Actions 添加（值 = 浏览器登录 trae.cn 后的 X-Cloudide-Session Cookie）"
+            退出 1
+          fi
+          echo "TRAE_SESSION 已配置（长度 ${#TRAE_SESSION} 字符）"
+          如果 "$TRAE_DEVICE_ID" 为空，则
+            echo "::warning::未配置 TRAE_DEVICE_ID：脚本将随机生成 16 位设备号，更容易命中 9074 风控，建议补上"
+          否则
+            echo "TRAE_DEVICE_ID 已配置（长度 ${#TRAE_DEVICE_ID} 字符）"
+          fi
+
+      # 执行签到：-u 关闭缓冲保证日志实时输出；2>&1 合并错误流，异常/traceback/HTTP 状态码都会完整打印
+      - name: 运行签入
         env:
           TRAE_SESSION: ${{ secrets.TRAE_SESSION }}
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
@@ -32,4 +72,6 @@ jobs:
           TRAE_SESSION_4: ${{ secrets.TRAE_SESSION_4 }}
           TRAE_DEVICE_ID_4: ${{ secrets.TRAE_DEVICE_ID_4 }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
-        run: python checkin.py
+          # 需要更详细的逐请求日志时，把下面一行取消注释（日志更啰嗦，但排查风控/网关问题最有效）
+          # TRAE_DEBUG: "1"
+        run: python -u checkin.py 2>&1
