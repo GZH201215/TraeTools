@@ -35,7 +35,6 @@ import urllib.request
 BASE = "https://api.trae.cn"
 DEBUG = os.environ.get("TRAE_DEBUG", "").strip().lower() not in ("", "0", "false", "no")
 
-
 def _redact(text):
     """把环境变量中的会话值替换成 ***（GitHub 日志本身会对 secret 打码，这里再兜一层底）。"""
     for key, value in os.environ.items():
@@ -46,7 +45,6 @@ def _redact(text):
             text = text.replace(value, "***")
     return text
 
-
 def _snippet(text, limit=300):
     """截取响应文本片段用于报错，先脱敏再压平换行，避免刷屏。"""
     if not text:
@@ -54,18 +52,15 @@ def _snippet(text, limit=300):
     text = _redact(text)[:limit]
     return text.replace("\r", " ").replace("\n", " ")
 
-
 def _mask_device_id(device_id):
     """设备号只打印首尾各 4 位，避免完整值进入日志。"""
     if len(device_id) > 8:
         return "%s****%s (len=%d)" % (device_id[:4], device_id[-4:], len(device_id))
     return "****"
 
-
 def _debug(msg):
     if DEBUG:
         print("[debug] " + _redact(str(msg)))
-
 
 def _post(path, headers, body="", retries=3, tag=""):
     """POST 请求。非 2xx 不抛 HTTPError，而是以 (status, body) 正常返回，便于上层判断原因；
@@ -97,7 +92,6 @@ def _post(path, headers, body="", retries=3, tag=""):
                 time.sleep(2 ** attempt)  # 2s、4s 指数退避
     raise RuntimeError("网络请求失败（已重试 %d 次）：%s: %s"
                        % (retries, type(last_err).__name__, last_err))
-
 
 def get_token(session):
     """用 X-Cloudide-Session Cookie 换取全新 JWT。失败时抛出带完整原因（HTTP 状态 + 响应片段）的异常。"""
@@ -132,7 +126,6 @@ def get_token(session):
         raise RuntimeError("GetUserToken 响应缺少 Result.Token：HTTP %s 原始返回: %s" % (status, _snippet(text)))
     return token
 
-
 def checkin(token, device_id):
     """执行每日签到（claim）。无论成败都返回 http 与解析后的 body，便于上层统一诊断。"""
     headers = {
@@ -150,7 +143,6 @@ def checkin(token, device_id):
         print("[警告] 签到接口返回非 JSON（HTTP %s）：%s" % (status, body["raw"]))
     return {"http": status, "body": body}
 
-
 def notify_feishu(webhook, text):
     """向飞书机器人推送一条文本消息；webhook 为空则跳过。返回 HTTP 状态码，失败返回 None。"""
     if not webhook:
@@ -164,11 +156,9 @@ def notify_feishu(webhook, text):
         print("[飞书] 推送失败：%s: %s" % (type(e).__name__, e))
         return None
 
-
 def beijing_now_str():
     """返回北京时间字符串（runner 在 UTC，需 +8 小时；用 timezone-aware 写法避免 3.12 废弃告警）。"""
     return (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
-
 
 def iter_sessions():
     """按顺序产出 (账号序号, session, device_id)。账号 1 读 TRAE_SESSION；
@@ -184,11 +174,9 @@ def iter_sessions():
         yield n, s, os.environ.get("TRAE_DEVICE_ID_%d" % n, "").strip()
         n += 1
 
-
 def random_device_id():
     """随机生成 16 位数字风控设备号（仅缺省时兜底；必须是纯数字，UUID/字母会触发 9074）。"""
     return str(random.randint(10 ** 15, 10 ** 16 - 1))
-
 
 def main():
     accounts = list(iter_sessions())
@@ -266,10 +254,10 @@ def main():
         diag = "  - %s: HTTP=%s, code=%s" % (name, http, code)
         if message:
             diag += ", message=%s" % message
-诊断。追加(诊断)
+        diagnostics.append(diag)
 
-    打印("================ 诊断摘要 ================")
-    对于每一行 在诊断中：
+    print("================ 诊断摘要 ================")
+    for line in diagnostics:
         print(line)
     if ok_names:
         print("成功：%s" % "、".join(ok_names))
@@ -281,15 +269,14 @@ def main():
     if ok_names:
         summary.append("成功：" + "、".join(ok_names))
     if fail_names:
-        摘要。追加("失败：" + "、".连接(失败名称))
-    如果 webhook 并且 (成功名称 或 失败名称):
-webhook, "\n".拼接(摘要)
+        summary.append("失败：" + "、".join(fail_names))
+    if webhook and (ok_names or fail_names):
+        status = notify_feishu(webhook, "\n".join(summary))
         print("飞书推送：%s" % ("HTTP %s" % status if status else "失败（见上方 [飞书] 提示）"))
 
     if not all_ok:
         sys.exit(1)
     print("全部账号签到完成")
-
 
 if __name__ == "__main__":
     try:
