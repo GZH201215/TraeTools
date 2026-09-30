@@ -49,19 +49,19 @@ jobs:
           TRAE_SESSION: ${{ secrets.TRAE_SESSION }}
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
         run: |
-          如果 "$TRAE_SESSION" 为空，则
+          if [ -z "$TRAE_SESSION" ]; then
             echo "::error::缺少 TRAE_SESSION：请到仓库 Settings -> Secrets and variables -> Actions 添加（值 = 浏览器登录 trae.cn 后的 X-Cloudide-Session Cookie）"
-            退出 1
+            exit 1
           fi
           echo "TRAE_SESSION 已配置（长度 ${#TRAE_SESSION} 字符）"
-          如果 "$TRAE_DEVICE_ID" 为空，则
+          if [ -z "$TRAE_DEVICE_ID" ]; then
             echo "::warning::未配置 TRAE_DEVICE_ID：脚本将随机生成 16 位设备号，更容易命中 9074 风控，建议补上"
-          否则
+          else
             echo "TRAE_DEVICE_ID 已配置（长度 ${#TRAE_DEVICE_ID} 字符）"
           fi
 
       # 执行签到：-u 关闭缓冲保证日志实时输出；2>&1 合并错误流，异常/traceback/HTTP 状态码都会完整打印
-      - name: 运行签入
+      - name: Run checkin
         env:
           TRAE_SESSION: ${{ secrets.TRAE_SESSION }}
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
